@@ -169,6 +169,7 @@ class Ngram_model:
         
     def test_models(self):
         predictions = np.array([])
+        perplexities = np.array([])
         for N_gramme in range(self.N):
             print(N_gramme + 1, self.delta)
             with codecs.open('test1.txt', 'r', 'utf-8-sig') as file:
@@ -184,6 +185,7 @@ class Ngram_model:
                     probs = map(lambda x: self.compute_probs(x, N_gramme + 1)[0], complete_proverbs)
                     #print(probs)
                     probs = np.array(probs)
+                    pplx = map(lambda x: self.compute_probs(x, N_gramme + 1)[1], complete_proverbs)
                     try :
                         print('---------------------')
                         '''
@@ -191,12 +193,15 @@ class Ngram_model:
                         print(propositions)
                         '''
                         print(proverbe[0].encode('utf-8').replace('***', propositions[np.argmax(probs)].encode('utf-8')))
+                        print(pplx[np.argmax(probs)])
                         predictions = np.append(predictions, [propositions[np.argmax(probs)].encode('utf-8')])
+                        perplexities = np.append(perplexities, [np.min(pplx)])
                     except IndexError:
                         print('NONE')
         
 
         predictions = predictions.reshape((self.N, int(float(len(predictions))/self.N)))
+        perplexities = perplexities .reshape((self.N, int(float(len(perplexities ))/self.N)))
         for i in range(self.N):
             score = 0
             for j in range(predictions.shape[1]):
@@ -204,9 +209,14 @@ class Ngram_model:
                     score = score + 1
             print("N = " + str(i + 1),float(score) / 20)
             
-            
+        print("mean of perplexity for all values of N")
+        print(np.median(perplexities, axis = 1))
+        '''
+        print("mean of perplexity for all values of N")
+        print(perplexities)
+        '''
             
 if __name__ == '__main__':
-    predictor = Ngram_model(0.01, 7)
+    predictor = Ngram_model(delta = 0.01, N = 3)
     predictor.add_delta_smoothing()
     predictor.test_models()
