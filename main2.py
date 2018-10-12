@@ -35,40 +35,49 @@ def train_corpus():
                     except KeyError:
                         Ngramme_dict[tuple(key)] = 1                
         
+            #Reduction des comptes des tokens de debut fin phrases
+            '''
+            TESTER AVEC EST SANS
+            '''
+            tokenToSuppress = tuple(np.repeat("<s>", N_gramme + 1))
+            Ngramme_dict[tokenToSuppress] = 0
+            tokenToSuppress = tuple(np.repeat("</s>", N_gramme + 1))
+            Ngramme_dict[tokenToSuppress] = 0
+        
         #Ajour d'un unknow
         if(N_gramme == 0):
-            Ngramme_dict[tuple(['<UNK>'])] = 0
+            Ngramme_dict[tuple(['<UNK>'])] = 0                                
         corpus.append(Ngramme_dict)
 
     return corpus
 
-
 def add_delta_smoothing(corpus, delta = 1):
-    Ngramme_dict = corpus[0]
+    newCorpus = map(lambda x: dict(x), corpus)
+    
+    #Calcul pour le cas 0 (fait à part car on ne peut pas appeler count(w_n-1))
+    Ngramme_dict = newCorpus[0]
     N = sum(Ngramme_dict.values())
     V = len(Ngramme_dict.keys()) - 1
     for k in Ngramme_dict.keys():
         Ngramme_dict[k] = float((Ngramme_dict[k]+ delta) * N) / float(N + delta * V) 
      
-        
-    for i in range(1, len(corpus)):    
-        #V = word_number ** (i+1)
-        V = len(corpus[0]) - 1
-        Ngramme_dict = corpus[i]
+    #Cas N >= 1
+    for i in range(1, len(corpus)): 
+        Ngramme_dict = newCorpus[i]
         keys = Ngramme_dict.keys()
         
         #Obtention des c* : les comptes apres lissage
         for k in keys:
             #On passe tout en proba et pas en compte reconstitués
-            #Ngramme_dict[k] = (Ngramme_dict[k] + delta)
-            N = corpus[i-1][tuple(k[0:i])]
+            countMinusOne = newCorpus[i-1][tuple(k[0:i])]
             
-            Ngramme_dict[k] = (Ngramme_dict[k] + delta) * N
-            Ngramme_dict[k] = float(Ngramme_dict[k]) / float(N + delta * V)
+            Ngramme_dict[k] = (Ngramme_dict[k] + delta) * countMinusOne
+            Ngramme_dict[k] = float(Ngramme_dict[k]) / float(countMinusOne + delta * V)
         
-        corpus[i] = Ngramme_dict
+        newCorpus[i] = Ngramme_dict
     
-    return corpus
+    return newCorpus
+
 
 #Retourne le nombre d'occurence du tuple si on l'avait stocké en mémoire
 def get_count(word_array, corpus, delta = 1):
@@ -96,7 +105,6 @@ def get_count(word_array, corpus, delta = 1):
             #au même problème pour le N-1gramme, à savoir un tuple jamais rencontré
             count_minus1 = get_count(word_array[:-1], corpus, delta)
             
-            #return float(delta) / float(count_minus1  + delta * V)
             return float(delta * count_minus1) / float(count_minus1  + delta * V) 
     return 1
 
@@ -113,7 +121,6 @@ def compute_probs(word_array, corpus, N, delta = 1):
     for j in range(N - 1):
         tokens.insert(0, '<s>')
         tokens.append('</s>')
-    print('------')
     for i in range(len(tokens) - (N-1)):        
         #Tuple par tuple, on appelle la fonction get_count
         word_tuple = tokens[i:(i+N)]
@@ -136,10 +143,12 @@ def compute_probs(word_array, corpus, N, delta = 1):
         perplexity = 99999999999999999        
     
     
-    print(perplexity, 'perplexity')
+    #print('------')
+    #print(perplexity, 'perplexity')
     return sum(probs), perplexity
     
 def test_models(corpus, delta = 1):
+    predictions = np.array([])
     for N_gramme in range(3):
         print(N_gramme + 1, delta)
         with codecs.open('test1.txt', 'r', 'utf-8-sig') as file:
@@ -150,36 +159,44 @@ def test_models(corpus, delta = 1):
                 propositions = re.findall('\"((\w|à|\xe2|û|ï|\xea|\xe9|\xee|\xe8)+)\"(,|\])', line)
                 propositions = map(lambda x: x[0], propositions)    
                 
-                
-                probs = map(lambda x: proverbe[0].encode('utf-8').replace('***', x.encode('utf-8')), propositions)
-                
-                probs = map(lambda x: compute_probs(x, corpus, N_gramme + 1, delta)[0], probs)
+
+                complete_proverbs = map(lambda x: proverbe[0].encode('utf-8').replace('***', x.encode('utf-8')), propositions)
+                probs = map(lambda x: compute_probs(x, corpus, N_gramme + 1, delta)[0], complete_proverbs)
                 #print(probs)
-                
                 probs = np.array(probs)
                 try :
-                    
                     print('---------------------')
                     '''
                     print(proverbe[0])
                     print(propositions)
                     '''
                     print(proverbe[0].encode('utf-8').replace('***', propositions[np.argmax(probs)].encode('utf-8')))
-                    print('---------------------')
+                    predictions = np.append(predictions, [propositions[np.argmax(probs)].encode('utf-8')])
                 except IndexError:
                     print('NONE')
-        
-                
+    return predictions
     
+if __name__ == '__main__':
+    solutions = ["vient","mentir", "larron", "aidera", "année", "beau", "fous", "femme", 
+                 "profite", "outils", "fête", "fête", "font", "tard", "on", "nul", 
+                 "point", "voir", "vend", "muet"
+                 ]
+    corpus = train_corpus()
+    corpus2 = add_delta_smoothing(corpus, 0.1)
+    preds = test_models(corpus2, 0.1)
+    preds = preds.reshape((3, int(float(len(preds))/3)))
+    for i in range(3):
+        score = 0
+        for j in range(preds.shape[1]):
+            if (preds[i, j] == solutions[j]):
+                score = score + 1
+        print(float(score) / 20)
+
+
+'''    
 def megaTest():
     corpus = train_corpus()
     for delta in [0.1, 0.3, 0.4, 0.7, 1, 2]:
         corpus2 = add_delta_smoothing(corpus, delta)    
         test_models(corpus2, delta)
-    
-if __name__ == '__main__':
-    corpus = train_corpus()
-    corpus2 = add_delta_smoothing(corpus)
-    test_models(corpus)
-    
-
+'''        

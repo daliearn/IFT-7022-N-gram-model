@@ -84,7 +84,7 @@ if __name__ == '__main__':
             if (answ_qty == qty):
                 score_qte = score_qte + 1
             else:
-                print(qty, answ_qty)
+                #print(qty, answ_qty)
                 pass
             if (answ_ing == ingredient):
                 score_ing = score_ing + 1
