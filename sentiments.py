@@ -22,18 +22,24 @@ from sklearn.model_selection import cross_val_score
 from nltk.corpus import wordnet as wn
 from nltk.corpus import sentiwordnet as swn
 
+import warnings
+from sklearn.exceptions import ConvergenceWarning
+
+
 positivesFiles = os.listdir('./books/Book/pos_Bk/')
 negativesFiles = os.listdir('./books/Book/neg_Bk/')
 
 class sentimentClassifier():
+    #Paramètres par défaut correspondant au meilleur score trouvé pour ces paramètres
     def __init__ (self, params = {
-            'lemmatize' : True,
-            'stemming' : False,
-            'openClassOnly' : True,
-            'noStopWords': True,
+            'lemmatize' : False,
+            'stemming' : True,
             'clf': 'log',
-            'value': 'frequency',
-            'min-occur': 0.0,
+            'value': 'presence',
+            'openClassOnly' : False,
+            'noStopWords': False,
+            'min-occur': 3,
+            'max-occur': 0.35,
             'addSentiWordNet':True
             }):
         self.params = params
@@ -45,62 +51,74 @@ class sentimentClassifier():
         return positives, negatives    
     
     def fit(self):
-        X = np.append(self.positives, self.negatives)
-        
+        X = np.append(self.positives, self.negatives)        
         y = np.append(np.ones(len(self.positives)), np.zeros(len(self.negatives)))
+
         if(self.params['noStopWords']):    
             stop = set(stopwords.words('english'))
             
-            #List of stop word tokenized "should be better
+            #Liste de token ajoutés aux stop words ils correspondent à la liste initiale lemmatizée
+            #et stemmisée
             for w in ["'re", "'s", "'ve", 'abov', 'ani', 'becaus', 'becau', 'befor', 'doe', 'dure', 'ha', 'hi', "n't",
-                      'need', 'onc', 'onli', 'ourselv', 'sha', 'themselv', 'thi', 'veri', 'wa', 'whi', 'yourselv']:
+                      'need', 'onc', 'onli', 'ourselv', 'sha', 'themselv', 'thi', 'veri', 'wa', 'whi', 'yourselv',
+                      "'d", "'ll", 'could', 'might', 'must', 'wo', 'would']:
                 stop.add(w)
         else:
             stop = None
-            
-        if(self.params['value'] == 'frequency'):
+        
+        #On ne prendra en compte que la présence du mot et pas le nombre de fois où il apparaît dans le document
+        if(self.params['value'] == 'count'):
             binary = True
         else:
             binary = False
-            
+        
+        #Initialisation du vectorizer qui va constituer la matrice d'occurence de toutes les fetures
+        #pour tous les documents en entrée
         if(self.params['value'] == 'tf-idf'):
             vectorizerPos = TfidfVectorizer(stop_words = stop, tokenizer = word_tokenize, binary = binary,
-                                        preprocessor=self.preprocess, min_df = self.params['min-occur'])    
+                                        preprocessor=self.preprocess, min_df = self.params['min-occur'], max_df = self.params['max-occur'])    
         else:    
             vectorizerPos = CountVectorizer(stop_words = stop, tokenizer = word_tokenize, binary = binary,
-                                        preprocessor=self.preprocess, min_df = self.params['min-occur'])
-
+                                        preprocessor=self.preprocess, min_df = self.params['min-occur'], max_df = self.params['max-occur'])
+        
+        #Apprentissage de tous les documents par le vectorizer
         Xtransorm = vectorizerPos.fit_transform(X)
 
+        #On ajoute deux colones à la fin de la matrice qui correspondent pour chaque document
+        #au score de positif et de négatif du dit document
         if(self.params['addSentiWordNet']):
             Xtransorm = np.append(np.array(Xtransorm.toarray()), np.array(self.sentiCount(X)), axis = 1)
         
         self.vectorizer = vectorizerPos
         
-        #TODO : tester une implémentation soit meme avec repeated k fold
-        cv = ShuffleSplit(n_splits=10, test_size=0.1, random_state=0)
+        #Validation croisée du modèle, on fixe le random_state
+        cv = ShuffleSplit(n_splits=3, test_size=0.25, random_state=0)
         if(self.params['clf'] == 'bayesian'):
             clf = MultinomialNB()
-            print('NB score on 10 Cross Val with 10 folds : ' 
+            print('NB score on Cross Val with 3 folds : ' 
                   + str(np.mean(cross_val_score(clf, Xtransorm, y, cv=cv))))  
         else:
             clf = LogisticRegression(solver = 'lbfgs')
-            print('RegLog score on 10 Cross Val with 10 folds : ' 
+            print('RegLog score on Cross Val with 3 folds : ' 
                   + str(np.mean(cross_val_score(clf, Xtransorm, y, cv=cv))))
         
+        
+        #Apprentissage final sur tout le jeu de donnée
         clf.fit(Xtransorm, y)
         self.clf = clf
 
         
-    
+    #Pour chaque mot du document, on applique un stemming et on reconstitue un
+    #document avec toutes les racines séparées par des espaces
     def stem(self, string):
         porter_stemmer = nltk.stem.porter.PorterStemmer()
-        #Tokenization
         tokenizedStr = word_tokenize(string)
         stemsStr = list(map(lambda word: porter_stemmer.stem(word), tokenizedStr))
         space = " "
         return space.join(stemsStr)
     
+    #Pour chaque mot du document, on applique une lemmatization et on reconstitue un
+    #document avec touts les lemmes séparés par des espaces
     def lemm(self, string):    
         wordnet_lemmatizer = nltk.stem.wordnet.WordNetLemmatizer()
         tokenizedStr = word_tokenize(string)
@@ -110,6 +128,8 @@ class sentimentClassifier():
  
         return lemsStr
 
+    #Soit la liste des tags correspondant aux classes ouvertes
+    #On ne garde que les mots tagés par ces classes
     def removeClosedClasses(self, string):   
         open_classes = {'FW', 'JJ', 'JRJ', 'JJS', 'NN', 'NNS', 'NNP', 'NNPS',
                         'RB', 'RBR', 'RBS', 'UH', 'VB', 'VBD', 'VBG', 'VBN',
@@ -121,17 +141,21 @@ class sentimentClassifier():
         space = " "
         return space.join(noClosedClass)
     
-    
+    #Le preprocess est un argument du vectorizer (qui extrait les features)
+    #Cette fonction reprend les fonctions ci dessus et sera appliquée à chaque document
     def preprocess(self, string):
-        if(self.params['lemmatize'] == True):
+        if(self.params['openClassOnly']):
+            string = self.removeClosedClasses(string)
+        
+        if(self.params['lemmatize']):
             string = self.lemm(string)
-        elif(self.params['stemming'] == True):
+        elif(self.params['stemming']):
             string = self.stem(string)
 
-        if(self.params['openClassOnly'] == True):
-            string = self.removeClosedClasses(string)
+        #print(string)
         return string
     
+    #Cette fonction simplifie les tag de nltk en tag comprehensible par sentiwordnet
     def penn_to_wn(self, tag):
         """
         Convert between the PennTreebank tags to simple Wordnet tags
@@ -148,15 +172,20 @@ class sentimentClassifier():
     
     def sentiCount(self, X):
         sentiScore = np.zeros((len(X),2))
+        #Pour chaque document on calcule le score de positivité et de négativité associé
         for i in range(len(X)):
+            
             posScore = 0.0
             negScore = 0.0
             tokenCount = 0.0
             wordArray = word_tokenize(X[i])
             taggedWords = pos_tag(wordArray)
+            
+            #Pour chaque mot, sentiwordnet renvoie un score de positivité négativité
+            #selon le pos tag de ce mot 
             for word,tag in taggedWords:
                 tag = self.penn_to_wn(tag)
-                if tag not in (wn.NOUN, wn.ADJ, wn.ADV):
+                if tag not in (wn.NOUN, wn.ADJ, wn.ADV, wn.VERB):
                     continue
                 synsets = wn.synsets(word, pos=tag)
                 if not synsets:
@@ -168,14 +197,23 @@ class sentimentClassifier():
                 negScore += swn_synset.neg_score()
                 tokenCount += 1.0
             
-            if(tokenCount != 0.0):
-                sentiScore[i,0] = posScore / tokenCount
-                sentiScore[i,1] = negScore / tokenCount
+            #Afin d'avoir des valeurs du même ordre de grandeur dans la matrice final
+            #qui entrainera le classifieur, on peut choisir de rammener entre 0 ou 1 
+            #la somme du score de tous les mots (somme vs moyenne)
+            if(self.params['value'] == 'count'):
+                sentiScore[i,0] = posScore
+                sentiScore[i,1] = negScore
             else:
-                sentiScore[i,0] = 0.0
-                sentiScore[i,1] = 0.0
+                if(tokenCount != 0.0):
+                    sentiScore[i,0] = posScore / tokenCount
+                    sentiScore[i,1] = negScore / tokenCount
+                else:
+                    sentiScore[i,0] = 0.0
+                    sentiScore[i,1] = 0.0
+            
         return sentiScore
             
+    #On applique les mêmes prétraitements que précédemment
     def predict(self, string):
         vector = self.vectorizer.transform(string)
         
@@ -186,8 +224,20 @@ class sentimentClassifier():
         
     
 if __name__ == '__main__':
-    clf = sentimentClassifier()
+    warnings.filterwarnings("ignore", category=ConvergenceWarning)
+    clf = sentimentClassifier(params = {
+            'lemmatize' : False,
+            'stemming' : True,
+            #clf peut avoir la valeur 'log' ou 'bayesian'
+            'clf': 'log',
+            #'presence', 'count', 'tf-idf'
+            'value': 'count',
+            'openClassOnly' : False,
+            'noStopWords': False,
+            'min-occur': 3,
+            'max-occur': 0.35,
+            'addSentiWordNet':True
+            })
     clf.fit()
-    clf.predict(["This movie was the most awfull shit I ever saw ..."])
-
-
+    #clf.predict(["This movie was the most awfull movie I ever saw ... Really trash"])
+    
