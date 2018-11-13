@@ -142,6 +142,10 @@ if __name__ == '__main__':
               2, 0, 0, 0, 0, 
               1, 1, 1, 0, 1, 
               0, 2, 1, 1, 0]
-    
+    print('score sur les fichiers de test')
     print(clf.score(X_test, y_test))
+    
+    print("pour utiliser la prediction, faites clf.predict(string)")
+    print("pour interpreter la prediction, faites print(clf.files[pred])")   
+    
     

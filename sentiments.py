@@ -232,12 +232,12 @@ if __name__ == '__main__':
             'clf': 'log',
             #'presence', 'count', 'tf-idf'
             'value': 'count',
-            'openClassOnly' : False,
+            'openClassOnly' : True,
             'noStopWords': False,
-            'min-occur': 3,
-            'max-occur': 0.35,
+            'min-occur': 1,
+            'max-occur': 1.0,
             'addSentiWordNet':True
             })
     clf.fit()
-    #clf.predict(["This movie was the most awfull movie I ever saw ... Really trash"])
+    #clf.predict(["This movie was the most awfull movie I ever saw ... Really trash I don't recommand it You will waste yor monney it'a a scam"])
     
